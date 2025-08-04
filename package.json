@@ -1,0 +1,28 @@
+{
+  "name": "score-dashboard",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev:frontend": "pnpm --filter client_frontend dev",
+    "dev:backend": "pnpm --filter client_backend dev",
+    "dev:server": "pnpm --filter server dev",
+    "dev:all": "pnpm --parallel --filter client_* dev",
+    "dev:full": "pnpm --parallel --filter '*' dev",
+    "build:frontend": "pnpm --filter client_frontend build",
+    "build:backend": "pnpm --filter client_backend build",
+    "build:server": "pnpm --filter server build",
+    "build:all": "pnpm --parallel --filter client_* build",
+    "build:full": "pnpm --parallel --filter '*' build",
+    "start:server": "pnpm --filter server start",
+    "install:all": "pnpm install --recursive",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.14.0",
+  "dependencies": {
+    "element-plus": "^2.10.5"
+  }
+}
