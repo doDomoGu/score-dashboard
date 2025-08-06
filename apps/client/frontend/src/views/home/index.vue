@@ -1,70 +1,172 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed } from "vue";
+import { useRouter } from "vue-router";
+import type { ITournament, TournamentCategory } from "@/types/tournament";
 
-interface Score {
-  id: number;
-  player: string;
-  score: number;
-  date: string;
-}
+// 将 IGame 替换为 ITournament
+type ITournamentRow = ITournament;
 
-const scores = ref<Score[]>([]);
+const router = useRouter();
+
+// mockData 也要用 ITournament 类型
+const tournaments = ref<ITournamentRow[]>([]);
 const loading = ref(true);
+const selectedCategory = ref<TournamentCategory | null>(null);
 
 // 模拟数据
-const mockData: Score[] = [
-  { id: 1, player: "Alice", score: 95, date: "2025-01-01" },
-  { id: 2, player: "Bob", score: 87, date: "2025-01-02" },
-  { id: 3, player: "Charlie", score: 92, date: "2025-01-03" },
-  { id: 4, player: "David", score: 88, date: "2025-01-04" },
-  { id: 5, player: "Eve", score: 96, date: "2025-01-05" },
-  { id: 6, player: "Frank", score: 79, date: "2025-01-06" },
-  { id: 7, player: "Grace", score: 91, date: "2025-01-07" },
-  { id: 8, player: "Henry", score: 85, date: "2025-01-08" },
-  { id: 9, player: "Ivy", score: 93, date: "2025-01-09" },
-  { id: 10, player: "Jack", score: 89, date: "2025-01-10" },
+const mockData: ITournamentRow[] = [
+  {
+    session: 1,
+    category: "qiaoma",
+    champion: { id: 1, name: "Player1" },
+    date: "2025-01-01",
+  },
+  {
+    session: 1,
+    category: "riichi",
+    champion: { id: 2, name: "Player2" },
+    date: "2025-01-02",
+  },
+  {
+    session: 2,
+    category: "qiaoma",
+    champion: { id: 3, name: "Player3" },
+    date: "2025-01-03",
+  },
+  {
+    session: 2,
+    category: "riichi",
+    champion: { id: 4, name: "Player4" },
+    date: "2025-01-04",
+  },
+  {
+    session: 3,
+    category: "qiaoma",
+    champion: { id: 5, name: "Player5" },
+    date: "2025-01-05",
+  },
+  {
+    session: 3,
+    category: "riichi",
+    champion: { id: 6, name: "Player6" },
+    date: "2025-01-06",
+  },
+  {
+    session: 4,
+    category: "qiaoma",
+    champion: { id: 7, name: "Player7" },
+    date: "2025-01-07",
+  },
+  {
+    session: 4,
+    category: "riichi",
+    champion: { id: 8, name: "Player8" },
+    date: "2025-01-08",
+  },
 ];
 
+// 计算属性
+const totalTournaments = computed(() => tournaments.value.length);
+const qiaomaTournaments = computed(
+  () => tournaments.value.filter((t) => t.category === "qiaoma").length
+);
+const riichiTournaments = computed(
+  () => tournaments.value.filter((t) => t.category === "riichi").length
+);
+
+// 筛选后的赛事列表
+const filteredTournaments = computed(() => {
+  if (!selectedCategory.value) {
+    return tournaments.value;
+  }
+  return tournaments.value.filter((t) => t.category === selectedCategory.value);
+});
+
+// 筛选处理函数
+const handleCategoryFilter = (category: TournamentCategory | null) => {
+  if (selectedCategory.value === category) {
+    selectedCategory.value = null;
+  } else {
+    selectedCategory.value = category;
+  }
+};
+
+// 检查是否为活跃状态
+const isActiveFilter = (category: TournamentCategory | null) => {
+  return selectedCategory.value === category;
+};
+
+// 新增：跳转到赛事详情
+const goToTournament = (tournament: ITournament) => {
+  router.push(`/tournament/${tournament.category}/${tournament.session}`);
+};
+
+// 获取赛事类型的中文名称
+const getCategoryName = (category: TournamentCategory) => {
+  switch (category) {
+    case "qiaoma":
+      return "敲麻";
+    case "riichi":
+      return "日麻";
+    default:
+      return category;
+  }
+};
+
+// 获取赛事类型的颜色
+const getCategoryColor = (category: TournamentCategory) => {
+  switch (category) {
+    case "qiaoma":
+      return "#667eea";
+    case "riichi":
+      return "#764ba2";
+    default:
+      return "#6c757d";
+  }
+};
+
 onMounted(() => {
-  // 模拟加载延迟
   setTimeout(() => {
-    scores.value = mockData;
+    tournaments.value = mockData;
     loading.value = false;
   }, 1000);
 });
-
-const getScoreColor = (score: number) => {
-  if (score >= 90) return "#28a745"; // 绿色 - 优秀
-  if (score >= 80) return "#ffc107"; // 黄色 - 良好
-  return "#dc3545"; // 红色 - 需要改进
-};
 </script>
 
 <template>
   <div class="score-dashboard">
     <!-- 标题区域 -->
     <div class="header">
-      <h1>分数仪表板</h1>
+      <h1>麻神杯</h1>
       <div class="stats">
-        <div class="stat-item">
-          <span class="stat-label">总记录数</span>
-          <span class="stat-value">{{ scores.length }}</span>
+        <!-- 总赛事数 - 点击显示全部 -->
+        <div
+          class="stat-item"
+          :class="{ active: isActiveFilter(null) }"
+          @click="handleCategoryFilter(null)"
+        >
+          <span class="stat-label">总赛事数</span>
+          <span class="stat-value">{{ totalTournaments }}</span>
         </div>
-        <div class="stat-item">
-          <span class="stat-label">平均分</span>
-          <span class="stat-value">
-            {{
-              scores.length
-                ? Math.round(scores.reduce((sum, s) => sum + s.score, 0) / scores.length)
-                : 0
-            }}
-          </span>
+
+        <!-- 雀魂麻将筛选 -->
+        <div
+          class="stat-item"
+          :class="{ active: isActiveFilter('qiaoma') }"
+          @click="handleCategoryFilter('qiaoma')"
+        >
+          <span class="stat-label">雀魂麻将</span>
+          <span class="stat-value">{{ qiaomaTournaments }}</span>
         </div>
-        <div class="stat-item">
-          <span class="stat-label">最高分</span>
-          <span class="stat-value">
-            {{ scores.length ? Math.max(...scores.map((s) => s.score)) : 0 }}
-          </span>
+
+        <!-- 日麻筛选 -->
+        <div
+          class="stat-item"
+          :class="{ active: isActiveFilter('riichi') }"
+          @click="handleCategoryFilter('riichi')"
+        >
+          <span class="stat-label">日麻</span>
+          <span class="stat-value">{{ riichiTournaments }}</span>
         </div>
       </div>
     </div>
@@ -82,37 +184,46 @@ const getScoreColor = (score: number) => {
         <!-- 表头 -->
         <div class="table-header">
           <div class="table-row">
-            <div class="table-cell header-cell">ID</div>
-            <div class="table-cell header-cell">玩家姓名</div>
-            <div class="table-cell header-cell">分数</div>
-            <div class="table-cell header-cell">日期</div>
-            <div class="table-cell header-cell">等级</div>
+            <div class="table-cell header-cell">赛事类型</div>
+            <div class="table-cell header-cell">届数</div>
+            <div class="table-cell header-cell">冠军玩家</div>
+            <div class="table-cell header-cell">比赛日期</div>
           </div>
         </div>
 
-        <!-- 表体 -->
+        <!-- 表体 - 使用筛选后的数据 -->
         <div class="table-body">
-          <div v-for="score in scores" :key="score.id" class="table-row data-row">
-            <div class="table-cell">{{ score.id }}</div>
-            <div class="table-cell player-name">{{ score.player }}</div>
-            <div class="table-cell score-cell">
-              <span class="score-badge" :style="{ backgroundColor: getScoreColor(score.score) }">
-                {{ score.score }}
-              </span>
-            </div>
-            <div class="table-cell">{{ score.date }}</div>
-            <div class="table-cell">
+          <div
+            v-for="game in filteredTournaments"
+            :key="`${game.session}-${game.category}`"
+            class="table-row data-row"
+          >
+            <div class="table-cell category-cell">
               <span
-                class="grade-badge"
-                :class="{
-                  'grade-excellent': score.score >= 90,
-                  'grade-good': score.score >= 80 && score.score < 90,
-                  'grade-needs-improvement': score.score < 80,
-                }"
+                class="category-badge"
+                :style="{ backgroundColor: getCategoryColor(game.category) }"
               >
-                {{ score.score >= 90 ? "优秀" : score.score >= 80 ? "良好" : "待改进" }}
+                {{ getCategoryName(game.category) }}
               </span>
             </div>
+            <div class="table-cell number-cell">
+              <!-- 修改：添加点击跳转功能 -->
+              <span class="number-badge clickable" @click="goToTournament(game)">
+                第{{ game.session }}届
+              </span>
+            </div>
+            <div class="table-cell champion-cell">
+              <div class="champion-info">
+                <span class="champion-name">{{ game.champion.name }}</span>
+                <span class="champion-id">ID: {{ game.champion.id }}</span>
+              </div>
+            </div>
+            <div class="table-cell date-cell">{{ game.date }}</div>
+          </div>
+
+          <!-- 无数据状态 -->
+          <div v-if="filteredTournaments.length === 0" class="no-data">
+            <p>暂无符合条件的赛事数据</p>
           </div>
         </div>
       </div>
@@ -157,11 +268,34 @@ const getScoreColor = (score: number) => {
       justify-content: center;
       align-items: center;
       flex-direction: column;
+      cursor: pointer;
+      padding: 15px 20px;
+      border-radius: 12px;
+      transition: all 0.3s ease;
+      border: 2px solid transparent;
+
+      &:hover {
+        background: rgba(255, 255, 255, 0.1);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+      }
+
+      &.active {
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.5);
+        transform: scale(1.05);
+
+        .stat-value {
+          color: #fff;
+          text-shadow: 0 2px 8px rgba(255, 255, 255, 0.3);
+        }
+      }
 
       .stat-label {
         color: rgba(255, 255, 255, 0.8);
         font-size: 0.875rem;
         margin-bottom: 5px;
+        transition: color 0.3s ease;
       }
 
       .stat-value {
@@ -169,6 +303,7 @@ const getScoreColor = (score: number) => {
         font-size: 1.5rem;
         font-weight: bold;
         text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        transition: all 0.3s ease;
       }
     }
   }
@@ -238,7 +373,7 @@ const getScoreColor = (score: number) => {
 
 .table-row {
   display: grid;
-  grid-template-columns: 80px 1fr 120px 120px 100px;
+  grid-template-columns: 120px 120px 1fr 200px;
   min-height: 60px;
   align-items: center;
   border-bottom: 1px solid #e1e5e9;
@@ -257,6 +392,13 @@ const getScoreColor = (score: number) => {
     font-size: 1rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+
+    // 针对第1、2、4列设置居中
+    &:nth-child(1),
+    &:nth-child(2),
+    &:nth-child(4) {
+      text-align: center;
+    }
   }
 }
 
@@ -265,66 +407,101 @@ const getScoreColor = (score: number) => {
     font-size: 1rem;
     color: #2c3e50;
   }
-
-  .player-name {
-    font-weight: 600;
-    color: #34495e;
-  }
 }
 
-.score-cell {
+.number-cell {
   display: flex;
   justify-content: center;
   align-items: center;
 }
 
-.score-badge {
+.number-badge {
+  background: linear-gradient(135deg, #28a745, #20c997);
   color: white;
   padding: 8px 16px;
   border-radius: 20px;
   font-weight: bold;
-  font-size: 1.125rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  min-width: 60px;
-  text-align: center;
+  font-size: 0.875rem;
+  box-shadow: 0 2px 4px rgba(40, 167, 69, 0.3);
   transition: all 0.2s ease;
 
   &:hover {
     transform: scale(1.05);
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 4px 8px rgba(40, 167, 69, 0.4);
+  }
+
+  // 新增：可点击样式
+  &.clickable {
+    cursor: pointer;
+    user-select: none;
+
+    &:hover {
+      background: linear-gradient(135deg, #218838, #1e7e34);
+      transform: scale(1.1);
+      box-shadow: 0 6px 15px rgba(40, 167, 69, 0.5);
+    }
+
+    &:active {
+      transform: scale(0.98);
+      box-shadow: 0 2px 8px rgba(40, 167, 69, 0.6);
+    }
   }
 }
 
-.grade-badge {
-  padding: 6px 12px;
-  border-radius: 12px;
+.category-cell {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.category-badge {
+  color: white;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: bold;
   font-size: 0.875rem;
-  font-weight: 600;
-  text-align: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
   transition: all 0.2s ease;
 
-  &.grade-excellent {
-    background-color: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
-  }
-
-  &.grade-good {
-    background-color: #fff3cd;
-    color: #856404;
-    border: 1px solid #ffeaa7;
-  }
-
-  &.grade-needs-improvement {
-    background-color: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
-  }
-
   &:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transform: scale(1.05);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
   }
+}
+
+.champion-cell {
+  .champion-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+
+    .champion-name {
+      font-weight: 600;
+      color: #2c3e50;
+      font-size: 1.1rem;
+    }
+
+    .champion-id {
+      color: #6c757d;
+      font-size: 0.875rem;
+    }
+  }
+}
+
+.date-cell {
+  color: #495057;
+  font-weight: 500;
+  text-align: center;
+}
+
+.no-data {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  color: #6c757d;
+  font-size: 1.1rem;
+  font-style: italic;
 }
 
 /* 滚动条样式 */
@@ -366,7 +543,7 @@ const getScoreColor = (score: number) => {
     }
 
     .table-row {
-      grid-template-columns: 60px 1fr 100px 100px 80px;
+      grid-template-columns: 100px 120px 1fr 100px;
       min-height: 50px;
     }
 
