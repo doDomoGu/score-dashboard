@@ -2,6 +2,9 @@ import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
 import dotenv from "dotenv";
+import { pool, testDatabaseConnection } from "./config/database";
+import tournamentsRouter from "./routes/tournaments"; // 这个现在指向tournaments/index.ts
+import usersRouter from "./routes/users";
 
 // 加载环境变量
 dotenv.config();
@@ -29,7 +32,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// 路由
+// 基础路由
 app.get("/", (req: Request, res: Response) => {
   res.json({
     message: "Score Dashboard API Server",
@@ -38,43 +41,33 @@ app.get("/", (req: Request, res: Response) => {
   });
 });
 
-app.get("/api/health", (req: Request, res: Response) => {
-  res.json({
-    status: "OK",
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  });
-});
+app.get("/api/health", async (req: Request, res: Response) => {
+  try {
+    // 检查数据库连接状态
+    const connection = await pool.getConnection();
+    const [rows] = await connection.execute("SELECT 1 as status");
+    connection.release();
 
-// API路由
-app.get("/api/scores", (req: Request, res: Response) => {
-  // 示例数据
-  const scores = [
-    { id: 1, player: "Alice", score: 95, date: "2025-01-01" },
-    { id: 2, player: "Bob", score: 87, date: "2025-01-02" },
-    { id: 3, player: "Charlie", score: 92, date: "2025-01-03" },
-  ];
-  res.json(scores);
-});
-
-app.post("/api/scores", (req: Request, res: Response) => {
-  const { player, score } = req.body;
-
-  if (!player || typeof score !== "number") {
-    return res.status(400).json({
-      error: "Invalid input. Player name and numeric score are required.",
+    res.json({
+      status: "OK",
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      database: "Connected",
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "ERROR",
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      database: "Disconnected",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
-
-  const newScore = {
-    id: Date.now(),
-    player,
-    score,
-    date: new Date().toISOString().split("T")[0],
-  };
-
-  res.status(201).json(newScore);
 });
+
+// 挂载路由
+app.use("/api/tournaments", tournamentsRouter);
+app.use("/api/users", usersRouter);
 
 // 错误处理中间件
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -96,8 +89,19 @@ app.use("*", (req: Request, res: Response) => {
   });
 });
 
-app.listen(PORT, () => {
+// 启动服务器
+app.listen(PORT, async () => {
   console.log(`🚀 Server is running on http://localhost:${PORT}`);
   console.log(`📊 Score Dashboard API is ready!`);
   console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+
+  // 测试数据库连接
+  await testDatabaseConnection();
+});
+
+// 优雅关闭
+process.on("SIGINT", async () => {
+  console.log("\n📴 Shutting down server...");
+  await pool.end();
+  process.exit(0);
 });

@@ -9,12 +9,11 @@ const router = createRouter({
       component: () => import("../views/home/index.vue"),
     },
     {
-      path: "/tournament/:category(qiaoma|riichi)/:session(\\d+)?",
-      name: "round",
+      path: "/tournament/:id(\\d+)",
+      name: "tournament",
       component: () => import("../views/tournament/index.vue"),
       props: (route) => ({
-        session: route.params.session ? Number(route.params.session) : undefined,
-        category: route.params.category as "qiaoma" | "riichi",
+        id: Number(route.params.id),
       }),
     },
     // {

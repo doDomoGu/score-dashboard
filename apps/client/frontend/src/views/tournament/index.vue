@@ -1,80 +1,70 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from "vue";
 import { useRoute } from "vue-router";
-import type { IRound } from "@/types/round";
-import type { IPlayer } from "@/types/player";
+import { ApiService } from "@/services/api";
+import { ElMessage } from "element-plus";
 
 const route = useRoute();
 
-// 获取路由参数
-const category = route.params.category as string;
-const session = parseInt(route.params.number as string);
+// 修复：获取路由参数 - 现在只需要获取 id
+const tournamentId = parseInt(route.params.id as string);
 
-const rounds = ref<IRound[]>([]);
+// 定义数据结构
+interface UserInfo {
+  id: number;
+  account: string;
+  nickname: string;
+}
+
+interface PlayerGrandTotal {
+  user: UserInfo;
+  score: number;
+}
+
+interface RoundPlayerTotal {
+  round: number;
+  player_totals: Array<{
+    user: UserInfo;
+    score: number;
+  }>;
+}
+
+interface Champion extends UserInfo {
+  score: number;
+}
+
+interface TournamentData {
+  id: number;
+  title: string;
+  category: string;
+  date: string;
+  info: {
+    players: number[];
+    round_number: number;
+    scores: Array<{
+      round: number;
+      players: number[];
+      scores: number[][];
+    }>;
+  };
+  player_count: number;
+  total_rounds: number;
+  completed_rounds: number;
+  is_completed: boolean;
+  round_totals: RoundPlayerTotal[];
+  player_totals: PlayerGrandTotal[];
+  champion: Champion | null;
+}
+
+const tournament = ref<TournamentData | null>(null);
 const loading = ref(true);
 
-const mockPlayers: (IPlayer & { rank: number })[] = [
-  { id: 1, name: "张三", rank: 0 },
-  { id: 2, name: "李四", rank: 0 },
-  { id: 3, name: "王五", rank: 0 },
-  { id: 4, name: "赵六", rank: 0 },
-  { id: 5, name: "孙七", rank: 0 },
-];
-
-// 5人单循环，共5轮，每轮4人参赛，轮空1人
-// 修改：避免3人同分，打乱分数顺序
-const mockRounds: IRound[] = [
-  {
-    number: 1,
-    players: [mockPlayers[0], mockPlayers[1], mockPlayers[2], mockPlayers[3]], // 孙七轮空
-    scores: [-30, 45, -35, 20], // 打乱分数顺序，4个不同分数
-  },
-  {
-    number: 2,
-    players: [mockPlayers[1], mockPlayers[2], mockPlayers[3], mockPlayers[4]], // 张三轮空
-    scores: [25, -100, 50, 10], // 打乱分数顺序，4个不同分数
-  },
-  {
-    number: 3,
-    players: [mockPlayers[2], mockPlayers[3], mockPlayers[4], mockPlayers[0]], // 李四轮空
-    scores: [30, -90, 35, 25], // 打乱分数顺序，4个不同分数
-  },
-  {
-    number: 4,
-    players: [mockPlayers[3], mockPlayers[4], mockPlayers[0], mockPlayers[1]], // 王五轮空
-    scores: [-20, 60, -15, -25], // 打乱分数顺序，4个不同分数
-  },
-  {
-    number: 5,
-    players: [mockPlayers[4], mockPlayers[0], mockPlayers[1], mockPlayers[2]], // 赵六轮空
-    scores: [15, -45, 20, 10], // 打乱分数顺序，4个不同分数
-  },
-];
-
-// 获取轮空玩家
-const getByePlayer = (roundNumber: number): IPlayer => {
-  switch (roundNumber) {
-    case 1:
-      return mockPlayers[4]; // 孙七轮空
-    case 2:
-      return mockPlayers[0]; // 张三轮空
-    case 3:
-      return mockPlayers[1]; // 李四轮空
-    case 4:
-      return mockPlayers[2]; // 王五轮空
-    case 5:
-      return mockPlayers[3]; // 赵六轮空
-    default:
-      return mockPlayers[0];
-  }
-};
-
-// 计算排名分数的函数
+// 计算排名分数的函数（保持原有逻辑）
 const calculateRankPoints = (scores: number[]): number[] => {
   const scoreWithIndex = scores.map((score, index) => ({ score, index }));
   scoreWithIndex.sort((a, b) => b.score - a.score);
 
-  const points = new Array(4).fill(0);
+  const points = new Array(scores.length).fill(0);
   const basePoints = [4, 3, 2, 1];
 
   let i = 0;
@@ -104,53 +94,74 @@ const calculateRankPoints = (scores: number[]): number[] => {
   return points;
 };
 
-// 计算每轮的排名和排名分数
+// 处理轮次数据，转换为显示格式
 const roundsWithRanking = computed(() => {
-  return rounds.value.map((round) => {
-    const rankPoints = calculateRankPoints(round.scores);
+  if (!tournament.value?.info?.scores) return [];
 
-    // 创建玩家数据数组，按位置顺序（东南西北）
-    const playersData = round.players.map((player, index) => {
-      const score = round.scores[index];
-      const rankPoint = rankPoints[index];
+  return tournament.value.info.scores
+    .map((roundScore, roundIdx) => {
+      // 获取该轮次的总分（从round_totals中获取）
+      const roundTotal = tournament.value?.round_totals.find((rt) => rt.round === roundIdx + 1);
+      if (!roundTotal) return null;
+
+      // 计算每局总分用于排名分数计算
+      const gamesTotalScores = roundScore.players.map((playerId) => {
+        return roundTotal.player_totals.find((pt) => pt.user.id === playerId)?.score || 0;
+      });
+
+      const rankPoints = calculateRankPoints(gamesTotalScores);
+
+      // 创建玩家数据数组，按位置顺序（东南西北）
+      const playersData = roundScore.players.map((playerId, index) => {
+        const playerTotal = roundTotal.player_totals.find((pt) => pt.user.id === playerId);
+        const score = playerTotal?.score || 0;
+        const rankPoint = rankPoints[index];
+
+        return {
+          player: playerTotal?.user || { id: playerId, account: "unknown", nickname: "Unknown" },
+          score,
+          rankPoint,
+          position: ["东家", "南家", "西家", "北家"][index],
+        };
+      });
+
+      // 计算排名（按分数排序）
+      const sortedForRank = [...playersData].sort((a, b) => b.score - a.score);
+      let currentRank = 1;
+      sortedForRank.forEach((playerData, index) => {
+        if (index > 0 && sortedForRank[index - 1].score !== playerData.score) {
+          currentRank = index + 1;
+        }
+        // 找到原数组中对应的玩家并设置排名
+        const originalIndex = playersData.findIndex((p) => p.player.id === playerData.player.id);
+        if (originalIndex !== -1) {
+          playersData[originalIndex].rank = currentRank;
+        }
+      });
 
       return {
-        player,
-        score,
-        rankPoint,
-        position: ["东家", "南家", "西家", "北家"][index],
+        number: roundIdx + 1,
+        players: playersData.map((pd) => pd.player),
+        scores: playersData.map((pd) => pd.score),
+        playersData,
+        totalScore: gamesTotalScores.reduce((sum, score) => sum + score, 0),
       };
-    });
-
-    // 计算排名（按分数排序）
-    const sortedForRank = [...playersData].sort((a, b) => b.score - a.score);
-    let currentRank = 1;
-    sortedForRank.forEach((playerData, index) => {
-      if (index > 0 && sortedForRank[index - 1].score !== playerData.score) {
-        currentRank = index + 1;
-      }
-      // 找到原数组中对应的玩家并设置排名
-      const originalIndex = playersData.findIndex((p) => p.player.id === playerData.player.id);
-      playersData[originalIndex].rank = currentRank;
-    });
-
-    return {
-      ...round,
-      playersData,
-      byePlayer: getByePlayer(round.number),
-      totalScore: round.scores.reduce((sum, score) => sum + score, 0),
-    };
-  });
+    })
+    .filter(Boolean);
 });
 
 // 计算累计排名分数
 const cumulativeScores = computed(() => {
   const cumulative: { [playerId: number]: number } = {};
 
-  mockPlayers.forEach((player) => {
-    cumulative[player.id] = 0;
+  if (!tournament.value?.player_totals) return cumulative;
+
+  // 初始化所有玩家的累计分数
+  tournament.value.player_totals.forEach((playerTotal) => {
+    cumulative[playerTotal.user.id] = 0;
   });
 
+  // 累加每轮的排名分数
   roundsWithRanking.value.forEach((round) => {
     round.playersData.forEach((playerData) => {
       cumulative[playerData.player.id] += playerData.rankPoint;
@@ -160,18 +171,14 @@ const cumulativeScores = computed(() => {
   return cumulative;
 });
 
-// 计算累计得分（实际分数）
+// 计算累计得分（实际分数）- 直接从API数据获取
 const cumulativeRawScores = computed(() => {
   const cumulative: { [playerId: number]: number } = {};
 
-  mockPlayers.forEach((player) => {
-    cumulative[player.id] = 0;
-  });
+  if (!tournament.value?.player_totals) return cumulative;
 
-  roundsWithRanking.value.forEach((round) => {
-    round.playersData.forEach((playerData) => {
-      cumulative[playerData.player.id] += playerData.score;
-    });
+  tournament.value.player_totals.forEach((playerTotal) => {
+    cumulative[playerTotal.user.id] = playerTotal.score;
   });
 
   return cumulative;
@@ -179,18 +186,37 @@ const cumulativeRawScores = computed(() => {
 
 // 计算最终排名
 const finalRanking = computed(() => {
-  const players = mockPlayers.map((player) => ({
-    ...player,
-    totalPoints: cumulativeScores.value[player.id],
-    totalRawScore: cumulativeRawScores.value[player.id],
+  if (!tournament.value?.player_totals) return [];
+
+  const players = tournament.value.player_totals.map((playerTotal) => ({
+    id: playerTotal.user.id,
+    name: playerTotal.user.nickname || playerTotal.user.account,
+    rank: 0,
+    totalPoints: cumulativeScores.value[playerTotal.user.id] || 0,
+    totalRawScore: playerTotal.score,
   }));
 
-  players.sort((a, b) => b.totalPoints - a.totalPoints);
+  // 修改排序逻辑：先按排名分（totalPoints）降序，再按累计得分（totalRawScore）降序
+  players.sort((a, b) => {
+    // 首先按排名分降序排列
+    if (a.totalPoints !== b.totalPoints) {
+      return b.totalPoints - a.totalPoints;
+    }
+    // 如果排名分相同，则按累计得分降序排列
+    return b.totalRawScore - a.totalRawScore;
+  });
 
   let currentRank = 1;
   players.forEach((player, index) => {
-    if (index > 0 && players[index - 1].totalPoints !== player.totalPoints) {
-      currentRank = index + 1;
+    if (index > 0) {
+      const prevPlayer = players[index - 1];
+      // 只有当排名分和累计得分都不同时，才更新排名
+      if (
+        prevPlayer.totalPoints !== player.totalPoints ||
+        prevPlayer.totalRawScore !== player.totalRawScore
+      ) {
+        currentRank = index + 1;
+      }
     }
     player.rank = currentRank;
   });
@@ -254,11 +280,39 @@ const getRankPointsColor = (rank: number) => {
   }
 };
 
-onMounted(() => {
-  setTimeout(() => {
-    rounds.value = mockRounds;
+// 格式化日期显示
+const formatDate = (dateString: string) => {
+  try {
+    const date = new Date(dateString);
+    return date.toISOString().split("T")[0]; // 返回 YYYY-MM-DD 格式
+  } catch {
+    return dateString;
+  }
+};
+
+// 加载赛事数据
+const loadTournamentData = async () => {
+  try {
+    loading.value = true;
+
+    // 修复：验证tournamentId是否有效
+    if (isNaN(tournamentId)) {
+      ElMessage.error("无效的赛事ID");
+      return;
+    }
+
+    const data = await ApiService.getTournamentById(tournamentId);
+    tournament.value = data;
+  } catch (error) {
+    console.error("Failed to load tournament data:", error);
+    ElMessage.error("加载赛事数据失败");
+  } finally {
     loading.value = false;
-  }, 1000);
+  }
+};
+
+onMounted(() => {
+  loadTournamentData();
 });
 </script>
 
@@ -267,12 +321,19 @@ onMounted(() => {
     <!-- 标题区域 -->
     <div class="header">
       <div class="title-section">
-        <h1>第{{ session }}届 {{ getCategoryName(category) }}</h1>
-        <p class="subtitle">对战详情 · 共{{ rounds.length }}轮 · 东南西北座次</p>
+        <h1 v-if="tournament">{{ tournament.title }}</h1>
+        <h1 v-else>加载中...</h1>
+        <p class="subtitle" v-if="tournament">
+          {{ getCategoryName(tournament.category) }} · 赛事ID: {{ tournament.id }} · 共{{
+            tournament.total_rounds
+          }}轮 · 已完成{{ tournament.completed_rounds }}轮 · 比赛日期：{{
+            formatDate(tournament.date)
+          }}
+        </p>
       </div>
 
       <!-- 累计排名榜 -->
-      <div class="leaderboard">
+      <div class="leaderboard" v-if="tournament && !loading">
         <h3>最终排名</h3>
         <div class="ranking-cards">
           <div
@@ -304,7 +365,7 @@ onMounted(() => {
       </div>
 
       <!-- 对战数据表格 -->
-      <div v-else class="table-container">
+      <div v-else-if="tournament" class="table-container">
         <div class="main-table">
           <!-- 表头 -->
           <div class="table-header">
@@ -315,7 +376,6 @@ onMounted(() => {
               <div class="table-cell position-header">南家</div>
               <div class="table-cell position-header">西家</div>
               <div class="table-cell position-header">北家</div>
-              <div class="table-cell bye-header">轮空玩家</div>
             </div>
             <!-- 子表头 -->
             <div class="table-row sub-header-row">
@@ -352,12 +412,6 @@ onMounted(() => {
                   <span>得分</span>
                 </div>
               </div>
-              <div class="table-cell bye-subheader">
-                <div class="bye-sub-columns">
-                  <span>ID</span>
-                  <span>姓名</span>
-                </div>
-              </div>
             </div>
           </div>
 
@@ -371,84 +425,36 @@ onMounted(() => {
                 </div>
               </div>
 
-              <!-- 东家 -->
-              <div class="table-cell player-cell">
+              <!-- 四个玩家位置 -->
+              <div
+                v-for="(playerData, index) in round.playersData"
+                :key="playerData.player.id"
+                class="table-cell player-cell"
+              >
                 <div class="player-columns">
-                  <span class="player-id">{{ round.playersData[0].player.id }}</span>
-                  <span class="player-name">{{ round.playersData[0].player.name }}</span>
+                  <span class="player-id">{{ playerData.player.id }}</span>
+                  <span class="player-name">{{
+                    playerData.player.nickname || playerData.player.account
+                  }}</span>
                   <span
                     class="rank-points"
-                    :style="{ background: getRankPointsColor(round.playersData[0].rank) }"
+                    :style="{ background: getRankPointsColor(playerData.rank) }"
                   >
-                    {{ round.playersData[0].rankPoint.toFixed(1) }}
+                    {{ playerData.rankPoint.toFixed(1) }}
                   </span>
-                  <span class="score" :style="{ color: getScoreColor(round.playersData[0].score) }">
-                    {{ formatScore(round.playersData[0].score) }}
+                  <span class="score" :style="{ color: getScoreColor(playerData.score) }">
+                    {{ formatScore(playerData.score) }}
                   </span>
-                </div>
-              </div>
-
-              <!-- 南家 -->
-              <div class="table-cell player-cell">
-                <div class="player-columns">
-                  <span class="player-id">{{ round.playersData[1].player.id }}</span>
-                  <span class="player-name">{{ round.playersData[1].player.name }}</span>
-                  <span
-                    class="rank-points"
-                    :style="{ background: getRankPointsColor(round.playersData[1].rank) }"
-                  >
-                    {{ round.playersData[1].rankPoint.toFixed(1) }}
-                  </span>
-                  <span class="score" :style="{ color: getScoreColor(round.playersData[1].score) }">
-                    {{ formatScore(round.playersData[1].score) }}
-                  </span>
-                </div>
-              </div>
-
-              <!-- 西家 -->
-              <div class="table-cell player-cell">
-                <div class="player-columns">
-                  <span class="player-id">{{ round.playersData[2].player.id }}</span>
-                  <span class="player-name">{{ round.playersData[2].player.name }}</span>
-                  <span
-                    class="rank-points"
-                    :style="{ background: getRankPointsColor(round.playersData[2].rank) }"
-                  >
-                    {{ round.playersData[2].rankPoint.toFixed(1) }}
-                  </span>
-                  <span class="score" :style="{ color: getScoreColor(round.playersData[2].score) }">
-                    {{ formatScore(round.playersData[2].score) }}
-                  </span>
-                </div>
-              </div>
-
-              <!-- 北家 -->
-              <div class="table-cell player-cell">
-                <div class="player-columns">
-                  <span class="player-id">{{ round.playersData[3].player.id }}</span>
-                  <span class="player-name">{{ round.playersData[3].player.name }}</span>
-                  <span
-                    class="rank-points"
-                    :style="{ background: getRankPointsColor(round.playersData[3].rank) }"
-                  >
-                    {{ round.playersData[3].rankPoint.toFixed(1) }}
-                  </span>
-                  <span class="score" :style="{ color: getScoreColor(round.playersData[3].score) }">
-                    {{ formatScore(round.playersData[3].score) }}
-                  </span>
-                </div>
-              </div>
-
-              <!-- 轮空玩家 -->
-              <div class="table-cell bye-cell">
-                <div class="bye-player-info">
-                  <span class="bye-player-id">{{ round.byePlayer.id }}</span>
-                  <span class="bye-player-name">{{ round.byePlayer.name }}</span>
                 </div>
               </div>
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- 错误状态 -->
+      <div v-else class="error-state">
+        <p>未找到赛事数据</p>
       </div>
     </div>
   </div>
@@ -578,6 +584,15 @@ onMounted(() => {
       font-size: 1.125rem;
     }
   }
+
+  .error-state {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 200px;
+    color: white;
+    font-size: 1.2rem;
+  }
 }
 
 @keyframes spin {
@@ -637,21 +652,6 @@ onMounted(() => {
             }
           }
         }
-
-        .bye-subheader {
-          .bye-sub-columns {
-            display: grid;
-            grid-template-columns: 60px 1fr;
-            gap: 5px;
-            font-size: 0.75rem;
-            font-weight: 500;
-            text-align: center;
-
-            span {
-              color: rgba(255, 255, 255, 0.9);
-            }
-          }
-        }
       }
     }
 
@@ -672,7 +672,7 @@ onMounted(() => {
 
     .table-row {
       display: grid;
-      grid-template-columns: 120px 1fr 1fr 1fr 1fr 150px;
+      grid-template-columns: 120px 1fr 1fr 1fr 1fr;
       min-height: 60px;
       align-items: center;
     }
@@ -745,51 +745,18 @@ onMounted(() => {
         }
       }
     }
-
-    .bye-cell {
-      background: rgba(108, 117, 125, 0.1);
-
-      .bye-player-info {
-        display: grid;
-        grid-template-columns: 60px 1fr;
-        gap: 5px;
-        align-items: center;
-        text-align: center;
-
-        .bye-player-id {
-          color: #6c757d;
-          font-size: 0.75rem;
-          font-weight: 500;
-          text-align: center;
-        }
-
-        .bye-player-name {
-          font-weight: 600;
-          color: #6c757d;
-          font-size: 0.875rem;
-          text-align: center;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
-      }
-    }
   }
 }
 
 /* 响应式设计 */
 @media (max-width: 1200px) {
   .table-container .main-table .table-row {
-    grid-template-columns: 100px 1fr 1fr 1fr 1fr 120px;
+    grid-template-columns: 100px 1fr 1fr 1fr 1fr;
   }
 
   .player-columns {
     grid-template-columns: 50px 1fr 70px 70px !important;
     font-size: 0.75rem !important;
-  }
-
-  .bye-player-info {
-    grid-template-columns: 50px 1fr !important;
   }
 }
 
@@ -811,7 +778,7 @@ onMounted(() => {
   }
 
   .table-container .main-table .table-row {
-    grid-template-columns: 80px 1fr 1fr 1fr 1fr 100px;
+    grid-template-columns: 80px 1fr 1fr 1fr 1fr;
     min-height: 80px;
   }
 
@@ -827,15 +794,6 @@ onMounted(() => {
 
   .sub-columns {
     grid-template-columns: 40px 1fr 60px 60px !important;
-    font-size: 0.625rem !important;
-  }
-
-  .bye-player-info {
-    grid-template-columns: 40px 1fr !important;
-  }
-
-  .bye-sub-columns {
-    grid-template-columns: 40px 1fr !important;
     font-size: 0.625rem !important;
   }
 }
